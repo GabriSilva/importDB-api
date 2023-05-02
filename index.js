@@ -8,15 +8,6 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 app.use(cors());
 
-/* const pool = mysql.createPool({
-  connectionLimit: 10,
-  host: 'localhost',
-  user: 'root',
-  password: '',
-  database: 'db',
-}); */
-
-
 app.post('/api/insert', (req, res) => {
 
   const pool = mysql.createPool({
@@ -40,21 +31,53 @@ app.post('/api/insert', (req, res) => {
           return;
         }
 
-        const promises = results.map((table) => {
+        const columnNamePromises = results.map((table) => {
+          return new Promise((resolve, reject) => {
+            connection.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = '${req.body.databaseName}' AND TABLE_NAME = '${table.TABLE_NAME}'`, (err, results) => {
+              if (err) {
+                res.status(500).send('Something went wrong with the table:', err);
+                return;
+              }
+              var columns = results.map((column) => column.COLUMN_NAME);
+              resolve(columns);
+            })
+          })
+        })
+
+        const tablePromises = results.map((table) => {
           return new Promise((resolve, reject) => {
             connection.query(`SELECT * FROM ${table.TABLE_NAME}`, (err, results) => {
               if (err) {
                 res.status(500).send('Something went wrong with the table:', err);
                 return;
               }
-              resolve(results);
+              
+              var data = {
+                name: table.TABLE_NAME,
+              };
+              data.rows = results;
+              resolve(data);
             })
           })
         })
 
-        Promise.all(promises)
+        Promise.all([...tablePromises, ...columnNamePromises])
           .then((results) => {
-            res.json(results);
+            var dbTables = [];
+
+            for (let i = 0; i < results.length / 2; i++) {
+              const rows = results[i].rows;
+              const name = results[i].name;
+              const columns = results[i + results.length / 2];
+              dbTables.push({
+                name: name,
+                columns: columns,
+                rows: rows
+              });
+            }
+
+            res.json(dbTables);
+
           }).catch((err) => {
             res.status(500).send('Something went wrong with the table:', err);
             return;
